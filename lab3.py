@@ -58,7 +58,9 @@ class Network(object):
         self.weights = [np.random.randn(y, x)
                         for x, y in zip(sizes[:-1], sizes[1:])]
         
-
+        self.momentum_w = [np.zeros_like(w) for w in self.weights]
+        self.momentum_b = [np.zeros_like(b) for b in self.biases]
+        
 
     def feedforward(self, a):
         # Run the network on a batch
@@ -72,17 +74,25 @@ class Network(object):
 
         return a
 
-    def update_mini_batch(self, mini_batch, eta):
+    def update_mini_batch(self, mini_batch, eta, gamma, lmbd):
         # Update networks weights and biases by applying a single step
         # of gradient descent using backpropagation to compute the gradient.
         # The gradient is computed for a mini_batch which is as in tensorflow API.
         # eta is the learning rate
         nabla_b, nabla_w = self.backprop(mini_batch[0].T,mini_batch[1].T)
 
-        self.weights = [w-(eta/len(mini_batch[0]))*nw
-                        for w, nw in zip(self.weights, nabla_w)]
-        self.biases = [b-(eta/len(mini_batch[0]))*nb
-                       for b, nb in zip(self.biases, nabla_b)]
+        self.momentum_w = [gamma * mw - (eta/len(mini_batch[0])) * nw - lmbd * w 
+                            for w, nw, mw in zip(self.weights, nabla_w, self.momentum_w)]
+        
+        self.momentum_b = [gamma * mb - (eta/len(mini_batch[0])) * nb  - lmbd * b
+                            for b, nb, mb in zip(self.biases, nabla_b, self.momentum_b)]
+    
+
+        self.weights = [w + mw
+                        for w, mw in zip(self.weights, self.momentum_w)]
+        self.biases = [b + mb
+                       for b, mb in zip(self.biases, self.momentum_b)]
+        
 
     def backprop(self, x, y):
         # For a single input (x,y) return a pair of lists.
@@ -126,7 +136,7 @@ class Network(object):
     def cost_derivative(self, output_activations, y):
         return softmax(output_activations) - y
 
-    def SGD(self, training_data, epochs, mini_batch_size, eta, test_data=None):
+    def SGD(self, training_data, epochs, mini_batch_size, eta, test_data=None, gamma=0.0, lmbd=0.0):
         x_train, y_train = training_data
         if test_data:
             x_test, y_test = test_data
@@ -134,7 +144,7 @@ class Network(object):
             for i in range(x_train.shape[0] // mini_batch_size):
                 x_mini_batch = x_train[(mini_batch_size*i):(mini_batch_size*(i+1))]
                 y_mini_batch = y_train[(mini_batch_size*i):(mini_batch_size*(i+1))]
-                self.update_mini_batch((x_mini_batch, y_mini_batch), eta)
+                self.update_mini_batch((x_mini_batch, y_mini_batch), eta, gamma, lmbd)
             if test_data:
                 print("Epoch: {0}, Accuracy: {1}".format(j, self.evaluate((x_test, y_test))))
             else:
