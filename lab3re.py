@@ -128,6 +128,9 @@ class Network(object):
 
 
 class SoftmaxNetwork(Network):
+    def __init__(self, sizes):
+        super().__init__(sizes)
+
     def feedforward(self, a):
         # Run the network on a batch
         a = a.T
@@ -175,18 +178,52 @@ class SoftmaxNetwork(Network):
         return (dLdBs,dLdWs)
     
 
+class L2Network(SoftmaxNetwork):
+    def __init__(self, sizes):
+        super().__init__(sizes)
 
+    def update_mini_batch(self, mini_batch, eta, lmbd = 0.0):
+        # Here we add L2 regularization, the bigger the lmbd, the bigger the penalty
 
+        # Sum of two derrivaties is a derrivative of a sum and we compute
+        # the derrivative of L2 regularization term separately only with respect to weights;
+        # d (lmbd/2 * sum(w^2)) / dw = lmbd * w
 
+        nabla_b, nabla_w = self.backprop(mini_batch[0].T,mini_batch[1].T)
 
+        self.weights = [(1-eta*lmbd/len(mini_batch[0]))*w-(eta/len(mini_batch[0]))*nw
+                        for w, nw in zip(self.weights, nabla_w)]
+        self.biases = [b-(eta/len(mini_batch[0]))*nb
+                       for b, nb in zip(self.biases, nabla_b)]
+        
 
+class MomentumNetwork(SoftmaxNetwork):
+    def __init__(self, sizes):
+        super().__init__(sizes)
+        self.momentum_w = [np.zeros(w.shape) for w in self.weights]
+        self.momentum_b = [np.zeros(b.shape) for b in self.biases]
 
+    def update_mini_batch(self, mini_batch, eta, gamma = 0.9, lmbd = 0.0):
+        # Introducing momentum, the bigger the gamma, the bigger the momentum
 
+        nabla_b, nabla_w = self.backprop(mini_batch[0].T,mini_batch[1].T)
+
+        self.momentum_w = [gamma * mw - (eta/len(mini_batch[0])) * nw - lmbd * w 
+                            for w, nw, mw in zip(self.weights, nabla_w, self.momentum_w)]
+        
+        self.momentum_b = [gamma * mb - (eta/len(mini_batch[0])) * nb  - lmbd * b
+                            for b, nb, mb in zip(self.biases, nabla_b, self.momentum_b)]
+    
+
+        self.weights = [w + mw
+                        for w, mw in zip(self.weights, self.momentum_w)]
+        self.biases = [b + mb
+                       for b, mb in zip(self.biases, self.momentum_b)]
 
 
 
 if __name__ == "__main__":
 
-    network = SoftmaxNetwork([784,30,10])
+    network = MomentumNetwork([784,30,10])
     network.SGD((x_train, y_train), epochs=100, mini_batch_size=100, eta=3.0, test_data=(x_test, y_test))
 
