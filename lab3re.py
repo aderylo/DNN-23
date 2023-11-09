@@ -219,11 +219,40 @@ class MomentumNetwork(SoftmaxNetwork):
                         for w, mw in zip(self.weights, self.momentum_w)]
         self.biases = [b + mb
                        for b, mb in zip(self.biases, self.momentum_b)]
+        
 
+class AdagradNetwork(MomentumNetwork):
+    def __init__(self, sizes):
+        super().__init__(sizes)
+        self.G_t = [np.zeros(w.shape) for w in self.weights]
 
+        def update_mini_batch(self, mini_batch, eta, gamma = 0.0, lmbd = 0.0):
+            # Introducing momentum, the bigger the gamma, the bigger the momentum
+
+            nabla_b, nabla_w = self.backprop(mini_batch[0].T,mini_batch[1].T)
+
+            self.G_w = [G_i + nw**2 for G_i, nw in zip(self.G_w, nabla_w)]
+            self.G_b = [G_i + nb**2 for G_i, nb in zip(self.G_b, nabla_b)]
+
+            adapted_lr_w = [eta / np.sqrt(G_i + 1e-8) for G_i in self.G_w]
+            adapted_lr_b = [eta / np.sqrt(G_i + 1e-8) for G_i in self.G_b]
+
+            self.momentum_w = [gamma * mw - (lr/len(mini_batch[0])) * nw - lmbd * w 
+                                for  w, nw, mw, lr in zip(self.weights, nabla_w, self.momentum_w, adapted_lr_w)]
+            
+            self.momentum_b = [gamma * mb - (lr/len(mini_batch[0])) * nb  - lmbd * b
+                                for b, nb, mb, lr in zip(self.biases, nabla_b, self.momentum_b, adapted_lr_b)]
+        
+
+            self.weights = [w + mw
+                            for w, mw in zip(self.weights, self.momentum_w)]
+            self.biases = [b + mb
+                        for b, mb in zip(self.biases, self.momentum_b)]
+
+        
 
 if __name__ == "__main__":
 
-    network = MomentumNetwork([784,30,10])
+    network = AdagradNetwork([784,30,10])
     network.SGD((x_train, y_train), epochs=100, mini_batch_size=100, eta=3.0, test_data=(x_test, y_test))
 
