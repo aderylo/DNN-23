@@ -248,11 +248,53 @@ class AdagradNetwork(MomentumNetwork):
                             for w, mw in zip(self.weights, self.momentum_w)]
             self.biases = [b + mb
                         for b, mb in zip(self.biases, self.momentum_b)]
+            
 
+class DropoutNetwork(SoftmaxNetwork):
+    def __init__(self, sizes):
+        super().__init__(sizes)
+
+
+    def backprop(self, x, y, p = 0.1):
+        # For a single input (x,y) return a pair of lists.
+        # First contains gradients over biases, second over weights.
+        g = x
+        mask = np.random.binomial(1, 1 - p, size=g.shape) # one with probability p
+        g = np.multiply(g, mask) * (1 / (1- p)) # apply mask and scale
+        gs = [g] # list to store all the gs, layer by layer
+        fs = [] # list to store all the fs, layer by layer
+
+        for b, w in zip(self.biases[:-1], self.weights[:-1]):
+            f = np.dot(w, g)+b
+            fs.append(f)
+            g = sigmoid(f)
+            mask = np.random.binomial(1, 1 - p, size=g.shape) # one with probability p
+            g = np.multiply(g, mask) * (1 / (1- p)) # apply mask and scale
+            gs.append(g)
+
+        # a trick, last layer without activation, because it is easier to compute
+        # the gradient of the cost function with respect to the non activated f straight away
+
+        f = np.dot(self.weights[-1], g) + self.biases[-1]
+        fs.append(f)
+
+        dLdf = self.cost_derivative(fs[-1], y)
+        dLdfs = [dLdf]
+        dLdg = np.matmul(self.weights[-1].T, dLdf)
+
+        for w,g in reversed(list(zip(self.weights[:-1],gs[1:]))):
+            dLdf = np.multiply(dLdg,np.multiply(g,1-g))
+            dLdfs.append(dLdf)
+            dLdg = np.matmul(w.T, dLdf)
+        
+        dLdWs = [np.matmul(dLdf,g.T) for dLdf,g in zip(reversed(dLdfs),gs)] 
+        dLdBs = [np.sum(dLdf,axis=1).reshape(dLdf.shape[0],1) for dLdf in reversed(dLdfs)] 
+        return (dLdBs,dLdWs)
         
 
+        
 if __name__ == "__main__":
 
-    network = AdagradNetwork([784,30,10])
+    network = DropoutNetwork([784,100,30,10])
     network.SGD((x_train, y_train), epochs=100, mini_batch_size=100, eta=3.0, test_data=(x_test, y_test))
 
