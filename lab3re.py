@@ -1,6 +1,7 @@
 import random
 import numpy as np
 from torchvision import datasets, transforms
+from PIL import Image
 
 
 # Let's read the mnist dataset
@@ -290,11 +291,50 @@ class DropoutNetwork(SoftmaxNetwork):
         dLdWs = [np.matmul(dLdf,g.T) for dLdf,g in zip(reversed(dLdfs),gs)] 
         dLdBs = [np.sum(dLdf,axis=1).reshape(dLdf.shape[0],1) for dLdf in reversed(dLdfs)] 
         return (dLdBs,dLdWs)
-        
+    
 
+def rng_rotate(img : np.ndarray, degrees=(-10, 10)):
+    pil_image = Image.fromarray(np.uint8(img.reshape((28,28))*255))
+    rotation_transform = transforms.RandomRotation(degrees=degrees)
+    rotated_pil_image = rotation_transform(pil_image)
+    np_image = np.array(rotated_pil_image)
+
+    return np_image.reshape((28*28))/255.
+
+def rng_shift(img : np.ndarray, shift=(-3, 3)):
+    pil_image = Image.fromarray(np.uint8(img.reshape((28,28))*255))
+    shift_transform = transforms.RandomAffine(degrees=0, translate=shift)
+    shifted_pil_image = shift_transform(pil_image)
+    np_image = np.array(shifted_pil_image)
+
+    return np_image.reshape((28*28))/255.
+
+
+class AugumentedNetwork(SoftmaxNetwork):
+    def __init__(self, sizes):
+        super().__init__(sizes)
+
+    def SGD(self, training_data, epochs, mini_batch_size, eta, test_data=None):
+        x_train, y_train = training_data
+        if test_data:
+            x_test, y_test = test_data
+        for j in range(epochs):
+            for i in range(x_train.shape[0] // mini_batch_size):
+                x_mini_batch = x_train[(mini_batch_size*i):(mini_batch_size*(i+1))]
+                y_mini_batch = y_train[(mini_batch_size*i):(mini_batch_size*(i+1))]
+                for k in range(x_mini_batch.shape[0]):
+                    if random.random() > 0.5:
+                        x_mini_batch[k] = rng_rotate(x_mini_batch[k])
+
+                self.update_mini_batch((x_mini_batch, y_mini_batch), eta)
+            if test_data:
+                print("Epoch: {0}, Accuracy: {1}".format(j, self.evaluate((x_test, y_test))))
+            else:
+                print("Epoch: {0}".format(j))
+        
         
 if __name__ == "__main__":
 
-    network = DropoutNetwork([784,100,30,10])
+    network = AugumentedNetwork([784,100,30,10])
     network.SGD((x_train, y_train), epochs=100, mini_batch_size=100, eta=3.0, test_data=(x_test, y_test))
 
