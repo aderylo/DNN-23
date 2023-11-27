@@ -148,14 +148,12 @@ class ReVNet(object):
 
         # last layer (no rev block)
         x1, x2 = a1, a2
-        a1 = sigmoid(np.matmul(self.weights1[-1], a1) + self.biases1[-1])
-        a2 = sigmoid(np.matmul(self.weights2[-1], a2) + self.biases2[-1])
-
-        output = np.concatenate((a1, a2), axis=0)
+        a1 = np.matmul(self.weights1[-1], a1) + self.biases1[-1]
+        a2 = np.matmul(self.weights2[-1], a2) + self.biases2[-1]
+        f = np.concatenate((a1, a2), axis=0)
 
         # backward pass <- both steps at once
-        dLdg = self.cost_derivative(output, y)
-        dLdf = np.multiply(dLdg, np.multiply(output, 1 - output))
+        dLdf = self.cost_derivative(f, y)
 
         dLdf1, dLdf2 = np.array_split(dLdf, 2, axis=0)
         dLdg1 = np.matmul(self.weights1[-1].T, dLdf1)
@@ -206,7 +204,7 @@ class ReVNet(object):
         ###########################
 
     def cost_derivative(self, output_activations, y):
-        return output_activations - y
+        return (softmax(output_activations)-y)
 
     def evaluate(self, x_test_data, y_test_data):
         # Count the number of correct answers for test_data
@@ -236,14 +234,14 @@ class ReVNet(object):
 
 
 if __name__ == "__main__":
-    task = Task.init(project_name="HW1", task_name="SimpleRevNetSigmoid")
+    task = Task.init(project_name="HW1", task_name="SimpleRevNetSoftmax2")
 
     hyperparams = {"eta": 3.0, "mini_batch_size": 100, "epochs": 50}
 
     task.connect(hyperparams)
 
 
-    network = ReVNet([784, 100, 100, 10])
+    network = ReVNet([784, 100, 100, 100, 10])
     network.SGD(
         (x_train, y_train),
         epochs=hyperparams["epochs"],
