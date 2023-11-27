@@ -3,6 +3,7 @@ import numpy as np
 from torchvision import datasets, transforms
 from clearml import Task
 import plotly.express as px
+from rev import RevBlock
 
 
 def load_mnist(path='mnist.npz'):
@@ -51,42 +52,41 @@ class ReVNet(object):
         ### Your code goes here ###
         self.num_layers = len(sizes)
         self.sizes = sizes
-        self.biases = [np.random.randn(y, 1) for y in sizes[1:]]
-        self.weights = [np.random.randn(y, x)
-                        for x, y in zip(sizes[:-1], sizes[1:])]
+        self.biases1 = [np.random.randn(int(y/2), 1) for y in sizes[1:]]
+        self.biases2 = [np.random.randn(int(y/2), 1) for y in sizes[1:]]
 
+        self.weights1 = [np.random.randn(int(y/2), int(x/2))
+                            for x, y in zip(sizes[:-1], sizes[1:])]
+        self.weights2 = [np.random.randn(int(y/2), int(x/2))
+                            for x, y in zip(sizes[:-1], sizes[1:])]
+
+    
         ###########################
 
-  
-    def activated_residual(self, x, weight, bias):
-        return sigmoid(np.matmul(weight, x) + bias)
-
-    def block_forward(self, x1, x2, weightF, weightG, biasF, biasG):
-        z1 = x1 + self.activated_residual(x2, weightF, biasF)
-        y2 = x2 + self.activated_residual(z1, weightG, biasG)
-        y1 = z1
-        return y1, y2
-    
-    def feedforward(self, a : np.ndarray):
+    def feedforward(self, a):
         # Run the network
         ### Your code goes here ###
         a = a.T
         a1, a2 = np.array_split(a, 2, axis=0)
-        for w, b in zip(self.weights[:-1], self.biases[:-1]):
-            wF, wG = np.array_split(w, 2, axis=1)
-            bF, bG = np.array_split(b, 2, axis=0)
 
-            a1, a2 = self.block_forward(a1, a2, wF, wG, bF, bG)
+        revBiasesAndWeights = list(zip(self.biases1, self.biases2, 
+                                       self.weights1, self.weights2))[1:-1]
 
-        # last layer, softmax or sigmoid? 
-        wF, wG = np.array_split(self.weights[-1], 2, axis=1)
-        bF, bG = np.array_split(self.biases[-1], 2, axis=0)
+        # first layer (no rev block)
+        a1 = sigmoid(np.matmul(self.weights1[0], a1)+self.biases1[0])
+        a2 = sigmoid(np.matmul(self.weights2[0], a2)+self.biases2[0])
 
-        a1 = a1 + sigmoid(np.matmul(wF, a2) + bF)
-        a2 = a2 + sigmoid(np.matmul(wG, a1) + bG)
+        for b1,b2,w1,w2 in revBiasesAndWeights:
+            a1, a2 = RevBlock(b1, b2, w1, w2).block_forward(a1, a2)
+
+        # last layer (no rev block)
+        a1 = sigmoid(np.matmul(self.weights1[-1], a1)+self.biases1[-1])
+        a2 = sigmoid(np.matmul(self.weights2[-1], a2)+self.biases2[-1])
 
         return np.concatenate((a1, a2), axis=0)
-
+    
+    
+        ###########################
 
     def update_mini_batch(self, x_mini_batch, y_mini_batch, eta):
         # Update networks weights and biases by applying a single step
@@ -94,69 +94,79 @@ class ReVNet(object):
         # The gradient is computed for a mini_batch.
         # eta is the learning rate
         ### Your code goes here ###
-        nabla_b, nabla_w = self.backpropagation(x_mini_batch.T, y_mini_batch.T)
+        nabla_b1, nabla_b2, nabla_w1, nabla_w2 = self.backpropagation(x_mini_batch.T, y_mini_batch.T)
 
-        self.weights = [w-(eta/len(x_mini_batch))*nw
-                        for w, nw in zip(self.weights, nabla_w)]
-        self.biases = [b-(eta/len(x_mini_batch))*nb
-                       for b, nb in zip(self.biases, nabla_b)]
+
+        self.weights1 = [w-(eta/len(x_mini_batch))*nw
+                        for w, nw in zip(self.weights1, nabla_w1)]
+        self.weights2 = [w-(eta/len(x_mini_batch))*nw
+                for w, nw in zip(self.weights2, nabla_w2)]
+        
+        self.biases1 = [b-(eta/len(x_mini_batch))*nb
+                       for b, nb in zip(self.biases1, nabla_b1)]
+        self.biases2 = [b-(eta/len(x_mini_batch))*nb
+                    for b, nb in zip(self.biases2, nabla_b2)]
         
         ###########################
 
-    def block_reverse(self, y1, y2, dLdy1, dLdy2, weightF, weightG, biasF, biasG):
-        def dFdx2(x2):
-            #f(x) = sigmoid(Wx + b)
-            return np.multiply(weightF.T, sigmoid_prime(np.matmul(weightF, x2) + biasF))
-
-        def dGdz1(z1):
-            return np.multiply(weightG.T, sigmoid_prime(np.matmul(weightG, z1) + biasG))
-
-        def dFdw(x2):
-            return np.matmul(sigmoid_prime(np.matmul(weightF, x2) + biasF), x2.T)
-
-        def dGdw(z1):
-            return np.matmul(sigmoid_prime(np.matmul(weightG, z1) + biasG), z1.T)
-        
-        
-        z1 = y1
-        x2 = y2 - self.activated_residual(z1, weightG, biasG)
-        x1 = z1 - self.activated_residual(x2, weightF, biasF)
-
-        dLdz1 = dLdy1 + np.multiply(dGdz1(z1).T, dLdy2)
-        dLdx2 = dLdy2 + np.multiply(dFdx2(x2).T, dLdy2)
-        dLdx1 = dLdz1
-
-        dLdwF = np.multiply(dFdw(z1).T, dLdz1)
-        dLdwG = np.multiply(dGdw(x2).T, dLdx2)
-
-        return x1, x2, dLdx1, dLdx2, dLdwF, dLdwG
-    
-
     def backpropagation(self, x, y):
         ### Your code goes here ###
-        ### f - unactivated, g - activated, L - loss, d - derivative
-        ### dLdg - derivative of loss with respect to activated function
-        ### dLdf - derivative of loss with respect to unactivated function
+        a1, a2 = np.array_split(x, 2, axis=0)
+        revBiasesAndWeights = list(zip(self.biases1, self.biases2, 
+                                       self.weights1, self.weights2))[1:-1]
+                
+        # first layer (no rev block)
+        a1 = sigmoid(np.matmul(self.weights1[0], a1)+self.biases1[0])
+        a2 = sigmoid(np.matmul(self.weights2[0], a2)+self.biases2[0])
+
+        for b1,b2,w1,w2 in revBiasesAndWeights:
+            a1, a2 = RevBlock(b1, b2, w1, w2).block_forward(a1, a2)
+
+        # last layer (no rev block)
+        x1, x2 = a1, a2
+        a1 = sigmoid(np.matmul(self.weights1[-1], a1)+self.biases1[-1])
+        a2 = sigmoid(np.matmul(self.weights2[-1], a2)+self.biases2[-1])
+
+        output = np.concatenate((a1, a2), axis=0)
+        
+
+        # backward pass <- both steps at once
+        dLdg = self.cost_derivative(output, y)
+        dLdf = np.multiply(dLdg,np.multiply(output,1-output))
+
+        dLdf1, dLdf2 = np.array_split(dLdf, 2, axis=0)
+        dLdg1 = np.matmul(self.weights1[-1].T, dLdf1)
+        dLdg2 = np.matmul(self.weights2[-1].T, dLdf2)
+
+        dLdW1s = [np.matmul(dLdf1, x1.T)]
+        dLdW2s = [np.matmul(dLdf2, x2.T)]
+        dLdB1s = [np.sum(dLdf1,axis=1).reshape(dLdf1.shape[0],1)]
+        dLdB2s = [np.sum(dLdf2,axis=1).reshape(dLdf2.shape[0],1)]
+
+        a1, a2 = x1, x2
+
+        for b1,b2,w1,w2 in reversed(list(zip(self.biases1[1:-1], self.biases2[1:-1], 
+                                                self.weights1[1:-1], self.weights2[1:-1]))):
+            
+            a1, a2, dLdg1, dLdg2, dLdw1, dLdw2, dLdb1, dLdb2 = RevBlock(b1, b2, w1, w2).block_reverse(a1, a2, dLdg1, dLdg2)
+
+            dLdW1s.append(dLdw1)
+            dLdW2s.append(dLdw2)
+            dLdB1s.append(dLdb1)
+            dLdB2s.append(dLdb2)
 
 
-        output = self.feedforward(x)
-        x1, x2 = np.array_split(output, 2, axis=0)
+        # first layer:
+        x1, x2 = np.array_split(x, 2, axis=0)
+        dLdf1 = np.multiply(dLdg1,np.multiply(a1,1-a1))
+        dLdf2 = np.multiply(dLdg2,np.multiply(a2,1-a2))
 
-        dLDout = self.cost_derivative(output, y)
-        dLdx1, dLdx2 = np.array_split(dLDout, 2, axis=0)
+        dLdW1s.append(np.matmul(dLdf1, x1.T))
+        dLdW2s.append(np.matmul(dLdf2, x2.T))
+        dLdB1s.append(np.sum(dLdf1,axis=1).reshape(dLdf1.shape[0],1))
+        dLdB2s.append(np.sum(dLdf2,axis=1).reshape(dLdf2.shape[0],1))
 
-        dLdWs = [], dLdBs = []
-
-        for w, b in reversed(list(zip(self.weights, self.biases))):
-            wF, wG = np.array_split(w, 2, axis=1)
-            bF, bG = np.array_split(b, 2, axis=0)
-
-            x1, x2, dLdx1, dLdx2, dLdwF, dLdwG = self.block_reverse(x1, x2, dLdx1, dLdx2, wF, wG, bF, bG)
-
-            dLdWs.append(np.concatenate((dLdwF, dLdwG), axis=1))
-            dLdBs.append(np.sum(dLdWs[-1], axis=1).reshape(dLdWs[-1].shape[0],1))
-
-        return (dLdBs,dLdWs)
+        return list(reversed(dLdB1s)), list(reversed(dLdB2s)), list(reversed(dLdW1s)), list(reversed(dLdW2s))
         ###########################
 
     def cost_derivative(self, output_activations, y):
@@ -185,5 +195,5 @@ class ReVNet(object):
 
 
 if __name__ == "__main__":
-    network = ReVNet([784,30,10])
+    network = ReVNet([784, 30, 30, 10])
     network.SGD((x_train, y_train), epochs=50, mini_batch_size=100, eta=3., test_data=(x_test, y_test))
