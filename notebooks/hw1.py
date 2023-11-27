@@ -24,8 +24,12 @@ def load_mnist(path='mnist.npz'):
 
 (x_train, y_train), (x_test, y_test) = load_mnist()
 
-def sigmoid(z):
-    return 1.0/(1.0+np.exp(-z))
+def sigmoid(x):
+    return np.where(
+            x >= 0, # condition
+            1 / (1 + np.exp(-x)), # For positive values
+            np.exp(x) / (1 + np.exp(x)) # For negative values
+    )
 
 def sigmoid_prime(z):
     # Derivative of the sigmoid
@@ -195,5 +199,5 @@ class ReVNet(object):
 
 
 if __name__ == "__main__":
-    network = ReVNet([784, 30, 30, 10])
+    network = ReVNet([784, 100, 100, 10])
     network.SGD((x_train, y_train), epochs=50, mini_batch_size=100, eta=3., test_data=(x_test, y_test))
