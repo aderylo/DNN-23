@@ -199,5 +199,27 @@ class ReVNet(object):
 
 
 if __name__ == "__main__":
+    task = Task.init(project_name="HW1", task_name="SimpleRevNet")
+
+
+
+
+    hyperparams = {'eta': 3., 'mini_batch_size': 100, 'epochs': 50}
+
+    task.connect(hyperparams)
+
+
+
+
+    network = ReVNet([784, 100, 100, 10])
+    network.SGD((x_train, y_train), 
+                epochs=50,
+                mini_batch_size=hyperparams["mini_batch_size"],
+                eta=hyperparams["eta"], 
+                test_data=(x_test, y_test))
+
+
+
+
     network = ReVNet([784, 100, 100, 10])
     network.SGD((x_train, y_train), epochs=50, mini_batch_size=100, eta=3., test_data=(x_test, y_test))
