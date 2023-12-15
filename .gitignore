@@ -32,3 +32,8 @@ log.bak/
 # Data
 MNIST/
 *.npz
+*.tar.xz
+
+# hw2 
+mvtec_anomaly_detection/
+results/
