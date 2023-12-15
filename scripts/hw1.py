@@ -6,6 +6,7 @@ import plotly.express as px
 from rev import RevBlock
 import warnings
 from dotenv import load_dotenv
+from memory_profiler import profile
 
 load_dotenv()
 
@@ -214,31 +215,81 @@ class ReVNet(object):
         corr = np.argmax(y_test_data, axis=1).T
         return np.mean(pred == corr)
 
-    def SGD(self, training_data, epochs, mini_batch_size, eta, test_data=None):
+    def SGD(self, training_data, epochs, mini_batch_size, eta, test_data=None, task=None):
         x_train, y_train = training_data
         if test_data:
             x_test, y_test = test_data
         for j in range(epochs):
             for i in range(x_train.shape[0] // mini_batch_size):
-                x_mini_batch = x_train[
-                    i * mini_batch_size : (i * mini_batch_size + mini_batch_size)
-                ]
-                y_mini_batch = y_train[
-                    i * mini_batch_size : (i * mini_batch_size + mini_batch_size)
-                ]
+                x_mini_batch = x_train[i*mini_batch_size:(i*mini_batch_size + mini_batch_size)]
+                y_mini_batch = y_train[i*mini_batch_size:(i*mini_batch_size + mini_batch_size)]
                 self.update_mini_batch(x_mini_batch, y_mini_batch, eta)
             if test_data:
-                print(
-                    "Epoch: {0}, Accuracy: {1}".format(j, self.evaluate(x_test, y_test))
-                )
+                accuracy = self.evaluate(x_test, y_test)
+                
+                if task:
+                    task.get_logger().report_scalar(title="accuracy",series="accuracy",value=accuracy,iteration=j)
+
+                print("Epoch: {0}, Accuracy: {1}".format(j, self.evaluate(x_test, y_test)))
             else:
                 print("Epoch: {0}".format(j))
 
 
-if __name__ == "__main__":
-    task = Task.init(project_name="HW1", task_name="SimpleRevNetSigmoid")
+class MomentumNetwork(ReVNet):
+    def __init__(self, sizes):
+        super().__init__(sizes)
+        self.momentum_w1 = [np.zeros(w.shape) for w in self.weights1]
+        self.momentum_w2 = [np.zeros(w.shape) for w in self.weights2]
+        self.momentum_b1 = [np.zeros(b.shape) for b in self.biases1]
+        self.momentum_b2 = [np.zeros(b.shape) for b in self.biases2]
 
-    hyperparams = {"eta": 3.0, "mini_batch_size": 100, "epochs": 50}
+
+    def update_mini_batch(self, x_mini_batch, y_mini_batch, eta, gamma = 0.9, lmbd = 0.0):
+        nabla_b1, nabla_b2, nabla_w1, nabla_w2 = self.backpropagation(
+            x_mini_batch.T, y_mini_batch.T)
+        
+        self.momentum_w1 = [gamma * mw - (eta/len(x_mini_batch[0])) * nw - lmbd * w 
+                            for w, nw, mw in zip(self.weights1, nabla_w1, self.momentum_w1)]
+        self.momentum_w2 = [gamma * mw - (eta/len(x_mini_batch[0])) * nw - lmbd * w 
+                            for w, nw, mw in zip(self.weights2, nabla_w2, self.momentum_w2)]
+        self.momentum_b1 = [gamma * mb - (eta/len(x_mini_batch[0])) * nb  - lmbd * b
+                            for b, nb, mb in zip(self.biases1, nabla_b1, self.momentum_b1)]
+        self.momentum_b2 = [gamma * mb - (eta/len(x_mini_batch[0])) * nb  - lmbd * b
+                            for b, nb, mb in zip(self.biases2, nabla_b2, self.momentum_b2)]
+        
+        self.weights1 = [w + mw
+                        for w, mw in zip(self.weights1, self.momentum_w1)]
+        self.weights2 = [w + mw
+                        for w, mw in zip(self.weights2, self.momentum_w2)]
+        self.biases1 = [b + mb
+                        for b, mb in zip(self.biases1, self.momentum_b1)]
+        self.biases2 = [b + mb
+                        for b, mb in zip(self.biases2, self.momentum_b2)]
+        
+    def SGD(self, training_data, epochs, mini_batch_size, eta, gamma, lmbd, test_data=None, task=None):
+        x_train, y_train = training_data
+        if test_data:
+            x_test, y_test = test_data
+        for j in range(epochs):
+            for i in range(x_train.shape[0] // mini_batch_size):
+                x_mini_batch = x_train[i*mini_batch_size:(i*mini_batch_size + mini_batch_size)]
+                y_mini_batch = y_train[i*mini_batch_size:(i*mini_batch_size + mini_batch_size)]
+                self.update_mini_batch(x_mini_batch, y_mini_batch, eta)
+            if test_data:
+                accuracy = self.evaluate(x_test, y_test)
+                
+                if task:
+                    task.get_logger().report_scalar(title="accuracy",series="accuracy",value=accuracy,iteration=j)
+
+                print("Epoch: {0}, Accuracy: {1}".format(j, self.evaluate(x_test, y_test)))
+            else:
+                print("Epoch: {0}".format(j)) 
+
+
+if __name__ == "__main__":
+    task = Task.init(project_name="HW1", task_name="ReVNEtMorning")
+
+    hyperparams = {"eta": 1.0, "mini_batch_size": 50, "epochs": 100, "gamma": 0.0, "lmbd": 0.0}
 
     task.connect(hyperparams)
 
@@ -250,4 +301,7 @@ if __name__ == "__main__":
         mini_batch_size=hyperparams["mini_batch_size"],
         eta=hyperparams["eta"],
         test_data=(x_test, y_test),
+        task=task,
     )
+
+    task.close()

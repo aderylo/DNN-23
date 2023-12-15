@@ -31,3 +31,4 @@ log.bak/
 
 # Data
 MNIST/
+*.npz
